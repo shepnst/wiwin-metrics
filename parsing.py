@@ -13,101 +13,32 @@ with open('parsed_tuning.json', 'w', encoding='utf-8') as f:
 with open('parsed_dash.json', 'w', encoding='utf-8') as f:
     json.dump(data_v2, f, ensure_ascii=False)
 
-with open('parsed_tuning.json', 'r', encoding='utf-8') as f:
-    training_data = json.load(f)
+with open('parsed_dash.json', 'r', encoding='utf-8') as f:
+    formatted_data = json.load(f)
 
-formatted_data = []
+dataset = pd.DataFrame([],
+    columns = ['question', 'answer', 'ground_truth', 'contexts', 'satisfactory', 'time spent'])
 
-for item in training_data:
-    contexts = "\n".join([ctx['text'] for ctx in item['contexts']])
-    base_input = f"Вопрос: {item['user_question']}\nКонтекст: {contexts}"
+count = 0
+for item in formatted_data:
 
-    if item['winner'] == 'Saiga':
-        formatted_data.append({
-            "input": base_input,
-            "output": item['saiga_answer'],
-            "source": "saiga",
-            "rating": "good" if item['winner'] in ['Saiga', 'Оба хорошо'] else "bad"
-        })
+    if count == 125:
+        continue
 
-    elif item['winner'] == 'GigaChat':
-        formatted_data.append({
-            "input": base_input,
-            "output": item['giga_answer'],
-            "source": "giga",
-            "rating": "good" if item['winner'] in ['GigaChat', 'Оба хорошо'] else "bad"
-        })
+    satisfactory = "yes"
+    if 'refined_question' in item.keys():
+        satisfactory = "no"
+    new_data = [item['user_question'],
+                item['saiga_answer'],
+                item['giga_answer'],
+                item['contexts'],
+                satisfactory,
+                item['response_time']]
 
-    elif item['winner'] == 'Оба хорошо':
-        formatted_data.extend([
-            {
-                "input": base_input,
-                "output": item['saiga_answer'],
-                "source": "saiga",
-                "rating": "good"
-            },
-            {
-                "input": base_input,
-                "output": item['giga_answer'],
-                "source": "giga",
-                "rating": "good"
-            }
-        ])
+    dataset.loc[count] = new_data
+    count += 1
 
-    elif item['winner'] == 'Оба плохо':
-        formatted_data.extend([
-            {
-                "input": base_input,
-                "output": item['saiga_answer'],
-                "source": "saiga",
-                "rating": "bad"
-            },
-            {
-                "input": base_input,
-                "output": item['giga_answer'],
-                "source": "giga",
-                "rating": "bad"
-            }
-        ])
-
-    else:
-        formatted_data.append({
-            "input": base_input,
-            "output": item['saiga_answer'],
-            "source": "unknown",
-            "rating": "neutral"
-        })
-
-
-dataset = pd.DataFrame({
-    "question": [
-        "Какие документы регулируют порядок обслуживания студентов в столовой?",
-        "Каковы основные этапы прохождения учебной практики?",
-    ],
-
-    "answer": [
-        "Я ГЛУПИ МОДЕЛЬ НЕ УМЕЮ...",
-        "А Я УМЕЮ...", #ответы вашей модели
-    ],
-    "ground_truth": [
-        "Порядок организации обслуживания регулируется следующими документами...",
-        "Основные этапы включают: 1. Размещение программы...", #эталонные ответы
-    ],
-    "contexts": [
-        [
-            "сотрудника НИУ ВШЭ с указанием руководителя...",
-            "Центр сервиса «Студент» – Национальный исследовательский университет...",
-            # остальные контексты для первого вопроса
-        ],
-        [
-            "уточной аттестации и текущего контроля успеваемости студентов...",
-            "Траектории обучения в бакалавриате...",
-            # ... контексты для второго вопроса
-        ],
-    ]
-})
 
 vs = ValidatorSimple(neural=True)
-vs.validate_rag(dataset)
-
-print(formatted_data[0])
+res = vs.validate_rag(dataset)
+print(res.values())
