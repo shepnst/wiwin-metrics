@@ -154,3 +154,15 @@ if __name__ == "__main__":
     print(Validator.questions)
     finish = datetime.datetime.now()
     print('Время работы: ' + str(finish - start))
+
+    # В конце main.py, после вычисления метрик
+    metrics = {
+        "general_score": Validator.scores.get('general_score', 0),
+        "recall": Validator.scores.get('context_recall', 0),  # Используем context_recall как recall
+        "precision": Validator.scores.get('context_precision', 0),  # Используем context_precision как precision
+        "answer_correctness_literal": Validator.scores.get('answer_correctness_literal', 0),
+        "answer_correctness_neural": Validator.scores.get('answer_correctness_neural', 0)
+    }
+
+    with open('metrics.json', 'w', encoding='utf-8') as f:
+        json.dump(metrics, f, ensure_ascii=False)
