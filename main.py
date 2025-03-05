@@ -1,6 +1,6 @@
 import json
 from func_to_call import parse_all_data, parse_data_with_time
-from metrics import Validator
+from metrics import Validator, campuses, education_levels, question_categories
 import time
 from queue import Queue
 import threading
@@ -13,6 +13,7 @@ list_data_queue = Queue(maxsize=50)
 number_of_logs = 0
 number_of_processed_json_logs = 0
 number_of_processed_list_data = 0
+vs = Validator(neural=False)
 
 data_v1 = parse_all_data('datasets/val_set.json')
 
@@ -54,6 +55,7 @@ def consumer():
     global number_of_logs
     global number_of_processed_json_logs
     global number_of_processed_list_data
+    global vs
     # Consumer работает пока кол-во обработанных путей < кол-ва переданных путей
     while True:
         # Выполняется цикл while, пока из очереди не удастся извлечь изображение
@@ -68,18 +70,16 @@ def consumer():
                     break
 
         with lock:
-            vs = Validator(neural=False)
             new_scores = vs.validate_rag(new_data)
-            print(new_scores)
             number_of_processed_list_data += 1
             if number_of_processed_list_data == number_of_logs:
                 event.set()
 
 
 def one_thread(arr):
+    global vs
     for i in range(len(arr)):
         new_data = arr[i]
-        vs = Validator(neural=False)
         new_scores = vs.validate_rag(new_data)
         print(new_scores)
     event.set()
@@ -108,12 +108,24 @@ if __name__ == "__main__":
         satisfaction = "yes"
         if 'refined_question' in item.keys():
             satisfaction = "no"
+        campus = ""
+        campus_list = [i for i in item['user_filters'] if i in campuses]
+        if len(campus_list) != 0:
+            campus = campus_list[0]
+        education_level = ""
+        education_level_list = [i for i in item['user_filters'] if i in education_levels]
+        if len(education_level_list) != 0:
+            education_level = education_level_list[0]
         one_log = {'question': item['user_question'],
                    'answer': item['saiga_answer'],
                    'ground_truth': item['giga_answer'],
                    'contexts': item['contexts'],
                    'satisfaction': satisfaction,
-                   'time spent': item['response_time']}
+                   'time spent': item['response_time'],
+                   'campus': campus,
+                   'education_level': education_level,
+                   'question_categories': item['question_filters']
+                   }
 
         if int(num_thread) == 1:
             dataset.append(one_log)
@@ -137,5 +149,8 @@ if __name__ == "__main__":
                     t.start()
 
     event.wait()
+    print(Validator.scores)
+    print(Validator.particular_scores)
+    print(Validator.questions)
     finish = datetime.datetime.now()
     print('Время работы: ' + str(finish - start))

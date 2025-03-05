@@ -4,11 +4,57 @@ import evaluate
 import numpy as np
 import pandas as pd
 
+import spacy
+import nltk
+from nltk.tokenize import word_tokenize
+from nltk.stem.snowball import SnowballStemmer  # Стеммер для русского языка
+from nltk.corpus import stopwords
+nlp = spacy.load('en_core_web_lg')
+nltk.download('stopwords')
+stemmer = SnowballStemmer("russian")
+# стоп-слова для русского языка
+russian_stop_words = set(stopwords.words('russian'))
+
 rouge = evaluate.load("rouge")
 bleu = evaluate.load("bleu")
 chrf = evaluate.load("chrf")
 bertscore = evaluate.load("bertscore")
 
+# Categories
+campuses = ["Москва", "Нижний Новгород", "Санкт-Петербург", "Пермь"]
+education_levels = ["бакалавриат", "магистратура", "специалитет", "аспирантура"]
+question_categories = [
+"Деньги",
+"Учебный процесс",
+"Практическая подготовка",
+"ГИА",
+"Траектории обучения",
+"Английский язык",
+"Цифровые компетенции",
+"Перемещения студентов / Изменения статусов студентов",
+"Онлайн-обучение",
+"Цифровые системы",
+"Обратная связь",
+"Дополнительное образование",
+"Безопасность",
+"Наука",
+"Социальные вопросы",
+"ВУЦ",
+"Общежития",
+"ОВЗ",
+"Внеучебка",
+"Выпускникам",
+"Другое"
+]
+
+def get_indexes(campus: str, education_level: str, question_category: List[str])->List[List[int]]:
+    campus_index = campuses.index(campus)
+    education_level_index = education_levels.index(education_level)
+    question_category_indexes = []
+    for i in question_category:
+        question_category_indexes.append(question_categories.index(i))
+    print(campus, education_level, question_category, campus_index, education_level_index, question_category_indexes)
+    return [[campus_index, education_level_index, i] for i in question_category_indexes]
 
 def context_recall(ground_truth: str, contexts: List[str])->float:
     """
@@ -29,7 +75,6 @@ def context_recall(ground_truth: str, contexts: List[str])->float:
         )
 
     return np.mean(rs)
-
 
 def context_precision(ground_truth: str, contexts: List[str])->float:
     """
@@ -56,7 +101,6 @@ def context_precision(ground_truth: str, contexts: List[str])->float:
             bs.append(0)
 
     return np.mean(bs)
-
 
 def answer_correctness_literal(
     ground_truth: str,
@@ -86,7 +130,6 @@ def answer_correctness_literal(
     )["score"]
 
     return score
-
 
 def answer_correctness_neural(
     ground_truth: str,
@@ -124,12 +167,15 @@ class Validator:
     Расчет простых метрик качества для заданного датасета.
     """
 
+    questions = {}
     scores = {'general_score': 0.0,
               'context_recall': 0.0,
               'context_precision': 0.0,
               'answer_correctness_literal': 0.0,
               'answer_correctness_neural': 0.0,
               'answer_satisfaction': 0.0}
+    particular_scores = [[[0 for i in question_categories] for j in education_levels] for k in campuses]
+    particular_number_of_data = [[[0 for h in question_categories] for m in education_levels] for n in campuses]
     number_of_data = 0
 
     def __init__(
@@ -176,6 +222,27 @@ class Validator:
             ) * 100
         return scores
 
+    def frequency_of_question(self, question: str):
+
+        question_ = question.lower()
+        tokens = word_tokenize(question_, language='russian')
+        tokens = [stemmer.stem(token) for token in tokens if token.isalpha() and token not in russian_stop_words]
+        question_ = ' '.join(tokens)
+        question_compare = nlp(question_)
+        count = 0
+
+        for key, value in Validator.questions.items():
+            if key.similarity(question_compare) > 0.7:
+                count += 1
+                value += 1
+        if count == 0:
+            Validator.questions[question] = 1
+
+        if len(Validator.questions) >= 50:
+            for key, value in Validator.questions.items():
+                if value == 1:
+                    del Validator.questions[key]
+
     def validate_rag(
         self,
         new_data,
@@ -188,14 +255,23 @@ class Validator:
         answer = new_data['answer']
         context = new_data['contexts']
         satisfaction = new_data['satisfaction']
+        question = new_data['question']
         res = self.score_sample(answer, gt, context, satisfaction)
         for k, v in res.items():
             Validator.scores[k] = (Validator.scores[k]*Validator.number_of_data + v) / (Validator.number_of_data + 1)
+            for i, j, d in get_indexes(new_data['campus'],
+                                       new_data['education_level'],
+                                       new_data['question_categories']):
+                new_value = (Validator.particular_scores[i][j][d]*Validator.particular_number_of_data[i][j][d] + v) \
+                            / (Validator.particular_number_of_data[i][j][d] + 1)
+                Validator.particular_scores[i][j][d] = new_value
+                Validator.particular_number_of_data[i][j][d] += 1
         Validator.scores['general_score'] = 0.2 * Validator.scores['context_recall'] + \
                                             0.2 * Validator.scores['context_precision'] + \
                                             0.2 * Validator.scores['answer_correctness_literal'] + \
                                             0.3 * Validator.scores['answer_correctness_neural'] + \
                                             0.1 * Validator.scores['answer_satisfaction']
         Validator.number_of_data += 1
+        self.frequency_of_question(question)
 
         return Validator.scores
