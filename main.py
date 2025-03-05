@@ -13,7 +13,7 @@ list_data_queue = Queue(maxsize=50)
 number_of_logs = 0
 number_of_processed_json_logs = 0
 number_of_processed_list_data = 0
-vs = Validator(neural=False)
+vs = Validator(neural=True)
 
 data_v1 = parse_all_data('datasets/val_set.json')
 

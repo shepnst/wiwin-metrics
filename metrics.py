@@ -9,7 +9,8 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.stem.snowball import SnowballStemmer  # Стеммер для русского языка
 from nltk.corpus import stopwords
-nlp = spacy.load('en_core_web_lg')
+nlp = spacy.load('ru_core_news_lg')
+nltk.download('punkt')
 nltk.download('stopwords')
 stemmer = SnowballStemmer("russian")
 # стоп-слова для русского языка
@@ -53,7 +54,6 @@ def get_indexes(campus: str, education_level: str, question_category: List[str])
     question_category_indexes = []
     for i in question_category:
         question_category_indexes.append(question_categories.index(i))
-    print(campus, education_level, question_category, campus_index, education_level_index, question_category_indexes)
     return [[campus_index, education_level_index, i] for i in question_category_indexes]
 
 def context_recall(ground_truth: str, contexts: List[str])->float:
@@ -174,7 +174,12 @@ class Validator:
               'answer_correctness_literal': 0.0,
               'answer_correctness_neural': 0.0,
               'answer_satisfaction': 0.0}
-    particular_scores = [[[0 for i in question_categories] for j in education_levels] for k in campuses]
+    particular_scores = [[[{'general_score': 0.0,
+                            'context_recall': 0.0,
+                            'context_precision': 0.0,
+                            'answer_correctness_literal': 0.0,
+                            'answer_correctness_neural': 0.0,
+                            'answer_satisfaction': 0.0} for i in question_categories] for j in education_levels] for k in campuses]
     particular_number_of_data = [[[0 for h in question_categories] for m in education_levels] for n in campuses]
     number_of_data = 0
 
@@ -214,7 +219,7 @@ class Validator:
             scores["answer_correctness_neural"] = answer_correctness_neural(
                     ground_truth=ground_truth,
                     answer=answer,
-                ) * 100
+                )[0] * 100
         else:
             scores["answer_correctness_neural"] = 0.0
         scores["answer_satisfaction"] = answer_satisfaction(
@@ -232,16 +237,25 @@ class Validator:
         count = 0
 
         for key, value in Validator.questions.items():
-            if key.similarity(question_compare) > 0.7:
+
+            question2 = key.lower()
+            tokens = word_tokenize(question2, language='russian')
+            tokens = [stemmer.stem(token) for token in tokens if token.isalpha() and token not in russian_stop_words]
+            question2 = ' '.join(tokens)
+            question_compare2 = nlp(question2)
+
+            if question_compare2.similarity(question_compare) > 0.7:
                 count += 1
-                value += 1
+                Validator.questions[key] += 1
+                break
+
         if count == 0:
             Validator.questions[question] = 1
 
+        new_dict = {}
         if len(Validator.questions) >= 50:
-            for key, value in Validator.questions.items():
-                if value == 1:
-                    del Validator.questions[key]
+            new_dict = {key: value for key, value in Validator.questions.items() if value != 1}
+            Validator.questions = new_dict
 
     def validate_rag(
         self,
@@ -262,10 +276,16 @@ class Validator:
             for i, j, d in get_indexes(new_data['campus'],
                                        new_data['education_level'],
                                        new_data['question_categories']):
-                new_value = (Validator.particular_scores[i][j][d]*Validator.particular_number_of_data[i][j][d] + v) \
+                new_value = (Validator.particular_scores[i][j][d][k]*Validator.particular_number_of_data[i][j][d] + v) \
                             / (Validator.particular_number_of_data[i][j][d] + 1)
-                Validator.particular_scores[i][j][d] = new_value
+                Validator.particular_scores[i][j][d][k] = new_value
                 Validator.particular_number_of_data[i][j][d] += 1
+                Validator.particular_scores[i][j][d]['general_score'] = \
+                    0.2 * Validator.particular_scores[i][j][d]['context_recall'] + \
+                    0.2 * Validator.particular_scores[i][j][d]['context_precision'] + \
+                    0.2 * Validator.particular_scores[i][j][d]['answer_correctness_literal'] + \
+                    0.3 * Validator.particular_scores[i][j][d]['answer_correctness_neural'] + \
+                    0.1 * Validator.particular_scores[i][j][d]['answer_satisfaction']
         Validator.scores['general_score'] = 0.2 * Validator.scores['context_recall'] + \
                                             0.2 * Validator.scores['context_precision'] + \
                                             0.2 * Validator.scores['answer_correctness_literal'] + \
