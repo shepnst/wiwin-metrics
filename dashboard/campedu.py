@@ -2,6 +2,7 @@ import streamlit as st
 import json
 import time
 import pandas as pd
+import altair as alt
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
@@ -91,9 +92,28 @@ with open(file_path, "r", encoding="utf-8") as f:
         edu_df = pd.DataFrame(list(education_counts.items()), columns=["Уровень образования", "Количество"])
         category_df = pd.DataFrame(list(category_counts.items()), columns=["Категория", "Количество"])
 
-        campus_chart.bar_chart(campus_df.set_index("Кампус"))
-        edu_chart.bar_chart(edu_df.set_index("Уровень образования"))
-        category_chart.bar_chart(category_df.set_index("Категория"))
+        campus_chart.altair_chart(
+            alt.Chart(campus_df).mark_bar().encode(
+                x="Кампус", y="Количество", color=alt.Color("Кампус", scale=alt.Scale(scheme="category20"))
+            ), use_container_width=True
+        )
+
+        edu_chart.altair_chart(
+            alt.Chart(edu_df).mark_bar().encode(
+                x="Уровень образования", y="Количество",
+                color=alt.Color("Уровень образования", scale=alt.Scale(scheme="category20"))
+            ), use_container_width=True
+        )
+
+        category_chart.altair_chart(
+            alt.Chart(category_df).mark_bar().encode(
+                x="Категория", y="Количество", color=alt.Color("Категория", scale=alt.Scale(scheme="category20"))
+            ), use_container_width=True
+        )
+
+        #campus_chart.bar_chart(campus_df.set_index("Кампус"))
+        #edu_chart.bar_chart(edu_df.set_index("Уровень образования"))
+        #category_chart.bar_chart(category_df.set_index("Категория"))
 
         # Вычисляем среднее время ответа
         avg_response_time = sum(response_times) / len(response_times) if response_times else 0
