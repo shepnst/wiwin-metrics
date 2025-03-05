@@ -3,7 +3,6 @@ from typing import List
 import evaluate
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 rouge = evaluate.load("rouge")
 bleu = evaluate.load("bleu")
@@ -114,11 +113,25 @@ def answer_correctness_neural(
 
     return score
 
+def answer_satisfaction(
+    satisfaction: str
+)->int:
+    if satisfaction == "yes": return 1
+    return 0
 
-class ValidatorSimple:
+class Validator:
     """
     Расчет простых метрик качества для заданного датасета.
     """
+
+    scores = {'general_score': 0.0,
+              'context_recall': 0.0,
+              'context_precision': 0.0,
+              'answer_correctness_literal': 0.0,
+              'answer_correctness_neural': 0.0,
+              'answer_satisfaction': 0.0}
+    number_of_data = 0
+
     def __init__(
         self,
         neural: bool = False,
@@ -133,57 +146,56 @@ class ValidatorSimple:
         answer: str,
         ground_truth: str,
         context: List[str],
+        satisfaction: str
     ):
         """
         Расчет для конкретного сэмпла в тестовом датасете.
         """
         scores = {}
-        scores["context_recall"] = [
-            context_recall(
+        scores["context_recall"] = context_recall(
                 ground_truth,
                 context,
-            )
-        ]
-        scores["context_precision"] = [
-            context_precision(
+            ) * 100
+        scores["context_precision"] = context_precision(
                 ground_truth,
                 context,
-            )
-        ]
-        scores["answer_correctness_literal"] = [
-            answer_correctness_literal(
+            ) * 100
+        scores["answer_correctness_literal"] = answer_correctness_literal(
                 ground_truth=ground_truth,
                 answer=answer,
             )
-        ]
         if self.neural:
-            scores["answer_correctness_neural"] = [
-                answer_correctness_neural(
+            scores["answer_correctness_neural"] = answer_correctness_neural(
                     ground_truth=ground_truth,
                     answer=answer,
-                )
-            ]
+                ) * 100
+        else:
+            scores["answer_correctness_neural"] = 0.0
+        scores["answer_satisfaction"] = answer_satisfaction(
+                satisfaction
+            ) * 100
         return scores
 
     def validate_rag(
         self,
-        test_set: pd.DataFrame,
+        new_data,
     ):
         """
         param test_set: пандас датасет с нужными полями: answer, ground_truth, context, question
         """
 
-        res = {}
-        for _, row in tqdm(test_set.iterrows(), "score_sample"):
-            gt = row.ground_truth
-            answer = row.answer
-            context = row.contexts
-            scores = self.score_sample(answer, gt, context)
-            if not res:
-                res = scores
-            else:
-                for k, v in scores.items():
-                    res[k].extend(v)
+        gt = new_data['ground_truth']
+        answer = new_data['answer']
+        context = new_data['contexts']
+        satisfaction = new_data['satisfaction']
+        res = self.score_sample(answer, gt, context, satisfaction)
         for k, v in res.items():
-            res[k] = np.mean(res[k])
-        return res
+            Validator.scores[k] = (Validator.scores[k]*Validator.number_of_data + v) / (Validator.number_of_data + 1)
+        Validator.scores['general_score'] = 0.2 * Validator.scores['context_recall'] + \
+                                            0.2 * Validator.scores['context_precision'] + \
+                                            0.2 * Validator.scores['answer_correctness_literal'] + \
+                                            0.3 * Validator.scores['answer_correctness_neural'] + \
+                                            0.1 * Validator.scores['answer_satisfaction']
+        Validator.number_of_data += 1
+
+        return Validator.scores
